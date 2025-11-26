@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    body {
+      font-family: 'Segoe UI', Roboto, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f4f4f9;
+      color: #000;
+    }
+    .container {
+      background: #fff;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+    }
+    h3 {
+      margin-top: 0;
+      color: #7b2cbf;
+      border-bottom: 1px solid #e0e0e0;
+      padding-bottom: 10px;
+    }
+    label {
+      display: block;
+      margin-top: 10px;
+      font-weight: 600;
+    }
+    select, input[type="text"] {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      box-sizing: border-box;
+    }
+    .row {
+      margin-top: 10px;
+    }
+    .buttons {
+      margin-top: 20px;
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+    button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .btn-primary {
+      background-color: #7b2cbf;
+      color: #fff;
+    }
+    .btn-sec {
+      background-color: #f1f3f4;
+      color: #000;
+      border: 1px solid #dadce0;
+    }
+    #status {
+      margin-top: 15px;
+      font-size: 12px;
+      color: #555;
+      min-height: 18px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h3>Rename Category</h3>
+
+  <div class="row">
+    <label for="oldCategory">Existing Category</label>
+    <select id="oldCategory"></select>
+  </div>
+
+  <div class="row">
+    <label for="newCategory">New Category Name</label>
+    <input type="text" id="newCategory" placeholder="Enter new category name">
+  </div>
+
+  <div class="row">
+    <label for="newType">New Type (optional)</label>
+    <select id="newType">
+      <option value="">Keep current type</option>
+      <option value="Need">Need</option>
+      <option value="Want">Want</option>
+      <option value="Savings">Savings</option>
+      <option value="Debt">Debt</option>
+      <option value="Income">Income</option>
+      <option value="Unknown">Unknown</option>
+      <option value="None">None</option>
+    </select>
+  </div>
+
+  <div class="buttons">
+    <button class="btn-sec" onclick="google.script.host.close()">Cancel</button>
+    <button class="btn-primary" onclick="doRename()">Rename</button>
+  </div>
+
+  <div id="status"></div>
+</div>
+
+<script>
+
+/** Load categories on modal open */
+document.addEventListener('DOMContentLoaded', initRename);
+
+function initRename() {
+  setStatus("Loading categories...");
+  google.script.run
+    .withSuccessHandler(fillCategories)
+    .withFailureHandler(showError)
+    .getCategoriesFromSettings();
+}
+
+/** Populate dropdown from Settings master list */
+function fillCategories(res) {
+  const sel = document.getElementById('oldCategory');
+  sel.innerHTML = '';
+
+  const list = (res && res.flatList) ? res.flatList : [];
+
+  if (!list.length) {
+    setStatus("No categories found in Settings.");
+    return;
+  }
+
+  list.forEach(item => {
+    if (!item || !item.category) return;
+    const opt = document.createElement('option');
+    opt.value = item.category;
+    opt.textContent = `${item.category} [${item.type || 'Unknown'}]`;
+    sel.appendChild(opt);
+  });
+
+  setStatus("");
+}
+
+function doRename() {
+  const oldCat = document.getElementById('oldCategory').value;
+  const newCat = document.getElementById('newCategory').value.trim();
+  const newType = document.getElementById('newType').value.trim();
+
+  if (!oldCat) return setStatus("Select a category to rename.");
+  if (!newCat) return setStatus("Enter a new category name.");
+
+  setStatus(`Renaming “…${oldCat}” → “…${newCat}”…`);
+
+  google.script.run
+    .withSuccessHandler(function(info) {
+      setStatus(
+        `Rename complete. Updated ${info.txUpdated} transaction cells and ${info.settingsUpdated} category cells.`
+      );
+    })
+    .withFailureHandler(showError)
+    .renameCategoryGlobal(oldCat, newCat, newType || null);
+}
+
+function setStatus(msg) {
+  document.getElementById('status').textContent = msg;
+}
+
+function showError(err) {
+  setStatus("Error: " + (err.message || err));
+}
+
+</script>
+
+</body>
+</html>

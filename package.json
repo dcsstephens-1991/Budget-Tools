@@ -1,0 +1,7 @@
+{
+  "name": "my-gas-project",
+  "version": "1.0.0",
+  "scripts": {
+    "zip": "zip -r dist.zip ./"
+  }
+}

@@ -1,0 +1,82 @@
+/** ============================================================================
+ * IMPORT ENGINE
+ * Backend for Importer.html.
+ * Imports CSV rows into Transactions, then triggers SyncEngine.
+ * ============================================================================
+ */
+
+function ImportEngine() {
+  return {
+    importCsv: importCsvData
+  };
+}
+
+/**
+ * importCsvData(csvText, opts)
+ * Called from Importer dialog.
+ */
+function importCsvData(csvText, opts) {
+  opts = opts || {};
+  const hasHeader = !!opts.hasHeader;
+  const mapping = opts.mapping || {};
+  const useSingle = opts.useSingleAmount;
+  const skipRows = Number(opts.skipRows || 0);
+
+  const ss = SpreadsheetApp.getActive();
+  const sh = ss.getSheetByName("Transactions");
+  if (!sh) throw new Error("Transactions sheet missing");
+
+  const rows = Utilities.parseCsv(csvText, opts.delimiter || ',');
+  if (!rows || !rows.length) return { imported:0 };
+
+  let data = hasHeader ? rows.slice(1 + skipRows) : rows.slice(skipRows);
+
+  const left = [];
+  const right = [];
+
+  data.forEach(r => {
+    const date = r[mapping.date - 1] || "";
+    const desc = r[mapping.description - 1] || "";
+    const bal  = r[mapping.balance - 1] || "";
+
+    if (!desc) return;
+
+    if (useSingle) {
+      const amt = parseFloat(r[mapping.amount - 1] || 0);
+      if (amt < 0) {
+        left.push([date, desc, Math.abs(amt), "", bal, "", ""]);
+      } else {
+        right.push(["","","","","","", "", "", "", date, desc, amt, "", bal, "", ""]);
+      }
+    } else {
+      const debit = parseFloat(r[mapping.debit - 1] || 0);
+      const credit= parseFloat(r[mapping.credit- 1] || 0);
+
+      if (debit > 0) {
+        left.push([date, desc, debit, "", bal, "", ""]);
+      }
+      if (credit > 0) {
+        right.push(["","","","","","", "", "", "", date, desc, credit, "", bal, "", ""]);
+      }
+    }
+  });
+
+  let total = 0;
+
+  const lastL = Math.max(5, sh.getRange("A:A").getLastRow() + 1);
+  if (left.length) {
+    sh.getRange(lastL,1,left.length, left[0].length).setValues(left);
+    total += left.length;
+  }
+
+  const lastR = Math.max(5, sh.getRange("J:J").getLastRow() + 1);
+  if (right.length) {
+    sh.getRange(lastR,1,right.length, right[0].length).setValues(right);
+    total += right.length;
+  }
+
+  // Trigger system syncing
+  SyncEngine().afterImport();
+
+  return { imported: total };
+}

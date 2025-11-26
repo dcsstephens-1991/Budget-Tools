@@ -1,0 +1,146 @@
+/** ============================================================================
+ * RULES ENGINE
+ * Saves rules, loads rules, and applies rules to transactions.
+ * ============================================================================
+ */
+
+function RulesEngine() {
+  return {
+    applyRulesToTransactions: applyRulesToTransactions,
+    applyToTransaction: applyToTransaction,
+    getRules: getSavedRules,
+    saveNewRule: saveNewRule,
+    deleteSpecificRules: deleteSpecificRules,
+    deleteAllRules: deleteAllRules
+  };
+}
+
+/** STORAGE KEY */
+const RULES_KEY = 'SAVED_RULES_V2';
+
+/** Load all rules */
+function getSavedRules() {
+  const store = PropertiesService.getDocumentProperties();
+  const raw = store.getProperty(RULES_KEY);
+  if (!raw) return [];
+  try {
+    return JSON.parse(raw);
+  } catch (e) {
+    return [];
+  }
+}
+
+/** Save a new or updated rule */
+function saveNewRule(keyword, category, type, direction) {
+  keyword = String(keyword || '').trim();
+  if (!keyword) throw new Error('Keyword required');
+
+  const rules = getSavedRules();
+
+  const key = keyword.toUpperCase() + '|' + direction.toUpperCase();
+
+  // remove old entries with same key
+  const filtered = rules.filter(r =>
+    (r.keyword.toUpperCase() + '|' + r.direction.toUpperCase()) !== key
+  );
+
+  filtered.push({
+    keyword,
+    category,
+    type,
+    direction
+  });
+
+  PropertiesService.getDocumentProperties().setProperty(
+    RULES_KEY,
+    JSON.stringify(filtered)
+  );
+
+  return true;
+}
+
+/** Delete selected rules */
+function deleteSpecificRules(keys) {
+  const rules = getSavedRules();
+
+  const updated = rules.filter(r => {
+    const key = r.keyword.toUpperCase() + '|' + r.direction.toUpperCase();
+    return !keys.includes(key);
+  });
+
+  PropertiesService.getDocumentProperties().setProperty(
+    RULES_KEY,
+    JSON.stringify(updated)
+  );
+}
+
+/** Delete all rules */
+function deleteAllRules() {
+  PropertiesService.getDocumentProperties().deleteProperty(RULES_KEY);
+}
+
+/** Apply rules to one row */
+function applyToTransaction(desc, amount, direction) {
+  const rules = getSavedRules();
+  const descUpper = desc.toUpperCase();
+  const dir = direction.toLowerCase();
+
+  for (let r of rules) {
+    if (!r.keyword) continue;
+
+    const match = descUpper.indexOf(r.keyword.toUpperCase()) !== -1;
+    if (!match) continue;
+
+    if (r.direction !== 'any' && r.direction !== dir) continue;
+
+    return {
+      matched: true,
+      category: r.category,
+      type: r.type
+    };
+  }
+
+  return { matched: false };
+}
+
+/** Apply rules to the entire Transactions sheet */
+function applyRulesToTransactions() {
+  const ss = SpreadsheetApp.getActive();
+  const sh = ss.getSheetByName('Transactions');
+  if (!sh) return;
+
+  const last = sh.getLastRow();
+  if (last < 5) return;
+
+  const data = sh.getRange(5,1,last-4, sh.getLastColumn()).getValues();
+
+  for (let i=0; i<data.length; i++) {
+    const row = data[i];
+
+    const leftDesc = String(row[1] || '');
+    const leftAmt  = Number(row[2] || 0);
+    const leftDir  = leftAmt > 0 ? 'out' : 'in';
+    if (leftDesc) {
+      const res = applyToTransaction(leftDesc, leftAmt, leftDir);
+      if (res.matched) {
+        row[5] = res.category;
+        row[6] = res.type;
+      }
+    }
+
+    const rightDesc = String(row[10] || '');
+    const rightAmt  = Number(row[11] || 0);
+    const rightDir  = rightAmt > 0 ? 'in' : 'out';
+    if (rightDesc) {
+      const res = applyToTransaction(rightDesc, rightAmt, rightDir);
+      if (res.matched) {
+        row[14] = res.category;
+        row[15] = res.type;
+      }
+    }
+
+    data[i] = row;
+  }
+
+  sh.getRange(5,1,data.length, data[0].length).setValues(data);
+}
