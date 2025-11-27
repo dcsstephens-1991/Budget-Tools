@@ -30,21 +30,24 @@ function runChartsRefresh() {
   ChartsEngine().refreshAll();
 }
 
+function runHealthCheck() {
+  Diagnostics().checkSystemHealth();
+}
+
 /* ----------------------------- DIALOGS ------------------------------ */
 
 function showImporterDialog() {
   const html = HtmlService.createHtmlOutputFromFile("Importer")
     .setWidth(1200)
     .setHeight(800);
-
   SpreadsheetApp.getUi().showModalDialog(html, "CSV Importer");
 }
 
 function openResolveUnknownsDialog() {
+  // Uses Capital U to match your file name
   const html = HtmlService.createHtmlOutputFromFile("ResolveUnknowns")
     .setWidth(1200)
     .setHeight(750);
-
   SpreadsheetApp.getUi().showModalDialog(html, "Resolve Unknown Transactions");
 }
 
@@ -52,68 +55,9 @@ function openRenameCategoryDialog() {
   const html = HtmlService.createHtmlOutputFromFile("RenameCategory")
     .setWidth(500)
     .setHeight(380);
-
   SpreadsheetApp.getUi().showModalDialog(html, "Rename Category");
 }
 
-/* ----------------------------- FULL SYSTEM REFRESH ----------------------------- */
-
-function RefreshBudgetSystem() {
-
-  const ss = SpreadsheetApp.getActive();
-
-  CategoryEngine().rebuild();
-  ValidationEngine().applyAll();
-  RuleEngine().applyRulesToTransactions();
-  UnknownsEngine().scan();
-
-  // NEW (compute totals for charts)
-  ComputeEngine().computeAll();
-
-  ss.toast('Budget System Refreshed', 'Done', 2);
-}
-
-
-/* CATEGORIZATION WRAPPER */
-function runApplyAllCategorization() {
-  CategoryEngine().applyAllRules();
-}
-
-/* VALIDATION WRAPPER */
-function runValidationRefresh() {
-  ValidationEngine().applyAll();
-}
-
-/* CHARTS WRAPPER */
-function runChartsRefresh() {
-  ChartsEngine().refreshAll();
-}
-
-/* IMPORTER UI */
-function showImporterDialog() {
-  const html = HtmlService.createHtmlOutputFromFile("Importer")
-    .setWidth(1000)
-    .setHeight(800);
-  SpreadsheetApp.getUi().showModalDialog(html, "CSV Importer");
-}
-
-/* UNKNOWN UI */
-function openResolveUnknownsDialog() {
-  const html = HtmlService.createHtmlOutputFromFile("ResolveUnknowns")
-    .setWidth(1200)
-    .setHeight(750);
-  SpreadsheetApp.getUi().showModalDialog(html, "Resolve Unknown Transactions");
-}
-
-/* RENAME UI */
-function openRenameCategoryDialog() {
-  const html = HtmlService.createHtmlOutputFromFile("RenameCategory")
-    .setWidth(500)
-    .setHeight(380);
-  SpreadsheetApp.getUi().showModalDialog(html, "Rename Category");
-}
-
-/* RULES UI */
 function openRulesDialog() {
   const html = HtmlService.createHtmlOutputFromFile("Rules")
     .setWidth(760)
@@ -121,21 +65,70 @@ function openRulesDialog() {
   SpreadsheetApp.getUi().showModalDialog(html, "Manage Rules");
 }
 
-/* MAIN SYSTEM REFRESH */
+/* ----------------------------- SYSTEM REFRESH ----------------------------- */
+
 function RefreshBudgetSystem() {
-  const ss = SpreadsheetApp.getActive();
+  // The SyncEngine handles the order: Cat -> Val -> Rules -> Compute -> Unknowns
+  SyncEngine().refreshSystem();
+}
 
-  // Apply validations
-  ValidationEngine().applyAll();
 
-  // Apply all saved rules
-  RuleEngine().applyRulesToTransactions();
+/* ----------------------------- BRIDGE: IMPORTER ----------------------------- */
 
-  // Rebuild unknown cache if you have UnknownsEngine()
-  try { UnknownsEngine().scan(); } catch(e){}
+function runCsvImport(csvText, opts) {
+  opts = opts || {};
+  opts.targetSheet = "Transactions"; 
+  
+  // 1. Run the Import
+  const result = ImportEngine().importCsv(csvText, opts);
 
-  // Reapply categorization rules
-  CategoryEngine().applyAllRules();
+  // 2. Switch to Transactions sheet so user sees the new data
+  SpreadsheetApp.getActive().getSheetByName("Transactions").activate();
 
-  ss.toast("Budget System Fully Refreshed", "Done", 3);
+  return result;
+}
+
+function getImportPresets() {
+  return ImportEngine().getPresets();
+}
+
+function saveImportPreset(name, mapData) {
+  return ImportEngine().savePreset(name, mapData);
+}
+
+function deleteImportPreset(name) {
+  return ImportEngine().deletePreset(name);
+}
+
+
+/* ----------------------------- BRIDGE: RESOLVE UNKNOWNS ----------------------------- */
+
+function getUnknownTransactions() {
+  return UnknownsEngine().scan();
+}
+
+function getCategoriesFromSettings() {
+  return CategoryEngine().getList();
+}
+
+function aiCategorizeTransactions(descriptions) {
+  return AI.autoCategorize(descriptions);
+}
+
+function resolveUnknownTransactions(rulesList) {
+  const engine = RuleEngine();
+  let count = 0;
+  
+  rulesList.forEach(r => {
+    engine.save(r.keyword, r.category, r.type, r.direction);
+    count++;
+  });
+  
+  // 1. Apply new rules
+  SyncEngine().afterRuleSave();
+
+  // 2. Switch to Transactions sheet to show updates
+  SpreadsheetApp.getActive().getSheetByName("Transactions").activate();
+  
+  return { saved: count };
 }

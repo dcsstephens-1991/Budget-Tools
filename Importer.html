@@ -1,82 +1,400 @@
-/** ============================================================================
- * IMPORT ENGINE
- * Backend for Importer.html.
- * Imports CSV rows into Transactions, then triggers SyncEngine.
- * ============================================================================
- */
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    body { font-family: 'Segoe UI', Roboto, sans-serif; padding: 20px; background: #f4f4f9; color:#333; }
+    .container { background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); max-width: 900px; margin: 0 auto; }
+    h3 { margin-top: 0; color: #7b2cbf; border-bottom: 2px solid #f0f0f0; padding-bottom: 10px; }
+    
+    /* Presets Bar */
+    .preset-bar { background: #f1f3f4; padding: 10px; border-radius: 4px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; border: 1px solid #ddd; }
+    .preset-bar select { flex-grow: 1; padding: 5px; }
+    .btn-icon { cursor: pointer; padding: 5px 10px; border: 1px solid #ccc; background: #fff; border-radius: 4px; font-size: 12px; }
+    .btn-icon:hover { background: #eee; }
 
-function ImportEngine() {
-  return {
-    importCsv: importCsvData
-  };
-}
+    /* Upload Area */
+    .upload-area { border: 2px dashed #7b2cbf; background: #f8f0ff; border-radius: 6px; padding: 20px; text-align: center; margin-bottom: 20px; transition: background 0.3s; }
+    .upload-area:hover { background: #efe5fd; }
+    input[type="file"] { display: none; }
+    .btn-select { background: #7b2cbf; color: white; padding: 8px 16px; border-radius: 4px; font-weight: bold; cursor: pointer; display: inline-block; font-size: 13px; }
+    #fileList { margin-top: 8px; font-size: 12px; color: #666; font-family: monospace; }
 
-/**
- * importCsvData(csvText, opts)
- * Called from Importer dialog.
- */
-function importCsvData(csvText, opts) {
-  opts = opts || {};
-  const hasHeader = !!opts.hasHeader;
-  const mapping = opts.mapping || {};
-  const useSingle = opts.useSingleAmount;
-  const skipRows = Number(opts.skipRows || 0);
+    /* Preview */
+    #preview-container { margin-bottom: 25px; overflow-x: auto; border: 1px solid #eee; border-radius: 4px; display: none; }
+    .preview-table { width: 100%; border-collapse: collapse; font-size: 11px; font-family: monospace; }
+    .preview-table th { background: #333; color: #fff; padding: 6px; text-align: left; white-space: nowrap; border-right: 1px solid #555; }
+    .preview-table td { padding: 6px; border-bottom: 1px solid #eee; border-right: 1px solid #eee; white-space: nowrap; color: #444; }
+    .preview-table tr:nth-child(even) { background-color: #f9f9f9; }
+    .preview-label { font-size: 12px; font-weight: bold; color: #7b2cbf; margin-bottom: 5px; display: none; }
 
-  const ss = SpreadsheetApp.getActive();
-  const sh = ss.getSheetByName("Transactions");
-  if (!sh) throw new Error("Transactions sheet missing");
+    /* Settings & Inputs */
+    .settings-box { background: #fafafa; padding: 15px; border-radius: 6px; border: 1px solid #e0e0e0; }
+    .row { display: flex; gap: 20px; margin-top: 15px; }
+    .col { flex: 1; }
+    label { display: block; font-weight: 600; font-size: 12px; margin-bottom: 4px; color: #444; }
+    .note { font-size: 10px; color: #888; margin-bottom: 3px; }
+    select.map-select { width: 100%; padding: 6px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; background: #fff; }
+    
+    /* Buttons */
+    button#btnImport { width: 100%; background: #333; color: white; border: none; padding: 12px; border-radius: 4px; font-weight: bold; cursor: pointer; margin-top: 20px; }
+    button#btnImport:hover { background: #555; }
+    button:disabled { background: #ccc !important; cursor: not-allowed; }
 
-  const rows = Utilities.parseCsv(csvText, opts.delimiter || ',');
-  if (!rows || !rows.length) return { imported:0 };
+    #status { margin-top: 15px; font-size: 13px; font-weight: bold; }
+    #progress-container { width: 100%; background: #e0e0e0; height: 6px; border-radius: 3px; margin-top: 10px; display: none; }
+    #progress-bar { height: 6px; background: #7b2cbf; width: 0%; border-radius: 3px; transition: width 0.3s; }
+  </style>
+</head>
+<body>
 
-  let data = hasHeader ? rows.slice(1 + skipRows) : rows.slice(skipRows);
+<div class="container">
+  <h3>Bulk CSV Importer</h3>
 
-  const left = [];
-  const right = [];
+  <div class="preset-bar">
+    <label>Saved Map:</label>
+    <select id="presetSelect" onchange="loadPreset()">
+      <option value="">-- Load Saved Preset --</option>
+    </select>
+    <button class="btn-icon" onclick="savePresetUI()">💾 Save</button>
+    <button class="btn-icon" style="color:#d32f2f;" onclick="deletePresetUI()">🗑️</button>
+  </div>
 
-  data.forEach(r => {
-    const date = r[mapping.date - 1] || "";
-    const desc = r[mapping.description - 1] || "";
-    const bal  = r[mapping.balance - 1] || "";
+  <div class="upload-area">
+    <input type="file" id="fileInput" multiple accept=".csv,.txt" onchange="handleFileSelect()">
+    <label for="fileInput" class="btn-select">Choose CSV Files</label>
+    <div id="fileList">No files selected</div>
+  </div>
 
-    if (!desc) return;
+  <div id="preview-label" class="preview-label">File Preview:</div>
+  <div id="preview-container"></div>
 
-    if (useSingle) {
-      const amt = parseFloat(r[mapping.amount - 1] || 0);
-      if (amt < 0) {
-        left.push([date, desc, Math.abs(amt), "", bal, "", ""]);
-      } else {
-        right.push(["","","","","","", "", "", "", date, desc, amt, "", bal, "", ""]);
-      }
+  <div class="settings-box">
+    
+    <div class="row">
+      <div class="col">
+        <label>Import Target:</label>
+        <select id="importTarget" class="map-select">
+          <option value="Left">Cheque / Savings (Left)</option>
+          <option value="Right">Credit Card (Right)</option>
+        </select>
+      </div>
+      <div class="col" style="padding-top:20px;">
+        <input type="checkbox" id="hasHeader" checked>
+        <label for="hasHeader" style="display:inline; font-weight:normal;">Skip Header Row</label>
+      </div>
+    </div>
+
+    <div style="margin: 15px 0; border-top: 1px solid #eee; border-bottom: 1px solid #eee; padding: 10px 0;">
+      <label>Mapping Technique:</label>
+      <div style="display:flex; gap:20px; margin-top:5px;">
+        <label style="font-weight:normal; font-size:12px; cursor:pointer;">
+          <input type="radio" name="mapMode" value="two" checked onchange="toggleMappingMode()"> 
+          Two Columns (Debit & Credit)
+        </label>
+        <label style="font-weight:normal; font-size:12px; cursor:pointer;">
+          <input type="radio" name="mapMode" value="one" onchange="toggleMappingMode()"> 
+          Single Column (Signed Amount)
+        </label>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="col">
+        <label>Date</label>
+        <select id="colDate" class="map-select"><option value="-1">Load file...</option></select>
+      </div>
+      <div class="col">
+        <label>Description</label>
+        <select id="colDesc" class="map-select"><option value="-1">Load file...</option></select>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="col group-two">
+        <label>Debit (Out)</label>
+        <select id="colDebit" class="map-select"><option value="-1">Load file...</option></select>
+      </div>
+      <div class="col group-two">
+        <label>Credit (In)</label>
+        <select id="colCredit" class="map-select"><option value="-1">Load file...</option></select>
+      </div>
+
+      <div class="col group-one" style="display:none;">
+        <label>Amount (+/-)</label>
+        <select id="colAmount" class="map-select"><option value="-1">Load file...</option></select>
+      </div>
+
+      <div class="col">
+        <label>Balance (Optional)</label>
+        <select id="colBal" class="map-select"><option value="-1">Load file...</option></select>
+      </div>
+    </div>
+
+  </div>
+
+  <button id="btnImport" onclick="startBatchImport()">Import Files</button>
+  
+  <div id="status"></div>
+  <div id="progress-container"><div id="progress-bar"></div></div>
+</div>
+
+<script>
+  let queue = [];
+  let totalFiles = 0;
+  let successCount = 0;
+  let currentHeaders = [];
+  let savedPresets = {};
+
+  document.addEventListener('DOMContentLoaded', refreshPresets);
+
+  function toggleMappingMode() {
+    const isOne = document.querySelector('input[name="mapMode"][value="one"]').checked;
+    document.querySelectorAll('.group-two').forEach(el => el.style.display = isOne ? 'none' : 'block');
+    document.querySelectorAll('.group-one').forEach(el => el.style.display = isOne ? 'block' : 'none');
+  }
+
+  /* --- FILE HANDLING & PREVIEW --- */
+
+  function handleFileSelect() {
+    const files = document.getElementById('fileInput').files;
+    const list = document.getElementById('fileList');
+    
+    if (files.length > 0) {
+      list.textContent = files.length + " file(s) selected";
+      parseHeadersAndPreview(files[0]);
     } else {
-      const debit = parseFloat(r[mapping.debit - 1] || 0);
-      const credit= parseFloat(r[mapping.credit- 1] || 0);
-
-      if (debit > 0) {
-        left.push([date, desc, debit, "", bal, "", ""]);
-      }
-      if (credit > 0) {
-        right.push(["","","","","","", "", "", "", date, desc, credit, "", bal, "", ""]);
-      }
+      list.textContent = "No files selected";
+      clearPreview();
     }
-  });
-
-  let total = 0;
-
-  const lastL = Math.max(5, sh.getRange("A:A").getLastRow() + 1);
-  if (left.length) {
-    sh.getRange(lastL,1,left.length, left[0].length).setValues(left);
-    total += left.length;
   }
 
-  const lastR = Math.max(5, sh.getRange("J:J").getLastRow() + 1);
-  if (right.length) {
-    sh.getRange(lastR,1,right.length, right[0].length).setValues(right);
-    total += right.length;
+  function parseHeadersAndPreview(file) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const text = e.target.result;
+      const lines = text.split(/\r\n|\n/).slice(0, 6);
+      if (!lines.length) return;
+
+      currentHeaders = parseCsvLine(lines[0] || "");
+      
+      // Populate all Dropdowns
+      populateDropdowns(currentHeaders);
+      
+      // Render Preview Table
+      let html = '<table class="preview-table"><thead><tr>';
+      currentHeaders.forEach((h, idx) => {
+        let hText = h.length > 20 ? h.substring(0,18)+"..." : h;
+        if (!hText.trim()) hText = `(Col ${idx})`;
+        html += `<th title="${h}">[${idx}] ${hText}</th>`;
+      });
+      html += '</tr></thead><tbody>';
+
+      lines.slice(0, 5).forEach(line => {
+        if (!line.trim()) return;
+        const cols = parseCsvLine(line);
+        html += '<tr>';
+        for(let i=0; i<currentHeaders.length; i++) html += `<td>${cols[i] || ""}</td>`;
+        html += '</tr>';
+      });
+      html += '</tbody></table>';
+
+      document.getElementById('preview-container').innerHTML = html;
+      document.getElementById('preview-container').style.display = 'block';
+      document.getElementById('preview-label').style.display = 'block';
+    };
+    reader.readAsText(file.slice(0, 4096));
   }
 
-  // Trigger system syncing
-  SyncEngine().afterImport();
+  function populateDropdowns(headers) {
+    const selects = document.querySelectorAll('select.map-select:not(#importTarget)');
+    selects.forEach(sel => {
+      const oldVal = sel.value; 
+      sel.innerHTML = '<option value="-1">-- Select Column --</option>';
+      headers.forEach((h, idx) => {
+        const opt = document.createElement('option');
+        opt.value = idx;
+        let hText = h || `(Empty Col ${idx})`;
+        opt.textContent = `[${idx}] ${hText}`;
+        sel.appendChild(opt);
+      });
+      if (oldVal !== "-1") sel.value = oldVal;
+    });
+  }
 
-  return { imported: total };
-}
+  function clearPreview() {
+    document.getElementById('preview-container').style.display = 'none';
+    document.getElementById('preview-label').style.display = 'none';
+    document.getElementById('preview-container').innerHTML = '';
+  }
+
+  function parseCsvLine(text) {
+    const parts = text.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+    return parts.map(p => {
+      let val = p.trim();
+      if (val.startsWith('"') && val.endsWith('"')) {
+        val = val.slice(1, -1).replace(/""/g, '"');
+      }
+      return val;
+    });
+  }
+
+  /* --- MEMORY / PRESETS --- */
+
+  function refreshPresets() {
+    google.script.run.withSuccessHandler(presets => {
+      savedPresets = presets || {};
+      const sel = document.getElementById('presetSelect');
+      sel.innerHTML = '<option value="">-- Load Saved Preset --</option>';
+      for (let name in savedPresets) {
+        let opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        sel.appendChild(opt);
+      }
+    }).getImportPresets();
+  }
+
+  function savePresetUI() {
+    const name = prompt("Enter a name for this map preset:");
+    if (!name) return;
+    
+    const mapData = {
+      mode: document.querySelector('input[name="mapMode"][value="one"]').checked ? 'one' : 'two',
+      target: document.getElementById('importTarget').value,
+      hasHeader: document.getElementById('hasHeader').checked,
+      cols: {
+        date: document.getElementById('colDate').value,
+        desc: document.getElementById('colDesc').value,
+        bal: document.getElementById('colBal').value,
+        debit: document.getElementById('colDebit').value,
+        credit: document.getElementById('colCredit').value,
+        amt: document.getElementById('colAmount').value
+      }
+    };
+    
+    google.script.run.withSuccessHandler(() => {
+      alert("Preset saved!");
+      refreshPresets();
+    }).saveImportPreset(name, mapData);
+  }
+
+  function loadPreset() {
+    const name = document.getElementById('presetSelect').value;
+    if (!name || !savedPresets[name]) return;
+    
+    const p = savedPresets[name];
+    
+    document.getElementById('importTarget').value = p.target || "Left";
+    document.getElementById('hasHeader').checked = p.hasHeader;
+    
+    const isOne = (p.mode === 'one');
+    document.querySelector(`input[name="mapMode"][value="${isOne?'one':'two'}"]`).checked = true;
+    toggleMappingMode();
+    
+    if (p.cols) {
+      document.getElementById('colDate').value = p.cols.date;
+      document.getElementById('colDesc').value = p.cols.desc;
+      document.getElementById('colBal').value = p.cols.bal;
+      document.getElementById('colDebit').value = p.cols.debit;
+      document.getElementById('colCredit').value = p.cols.credit;
+      document.getElementById('colAmount').value = p.cols.amt;
+    }
+  }
+  
+  function deletePresetUI() {
+    const name = document.getElementById('presetSelect').value;
+    if (!name) return;
+    if(!confirm("Delete preset '"+name+"'?")) return;
+    
+    google.script.run.withSuccessHandler(() => {
+      refreshPresets();
+    }).deleteImportPreset(name);
+  }
+
+  /* --- IMPORT LOGIC --- */
+
+  function startBatchImport() {
+    const fileInput = document.getElementById('fileInput');
+    if (fileInput.files.length === 0) {
+      setStatus("Please select at least one file.", true);
+      return;
+    }
+
+    queue = Array.from(fileInput.files);
+    totalFiles = queue.length;
+    successCount = 0;
+    
+    document.getElementById('btnImport').disabled = true;
+    document.getElementById('progress-container').style.display = 'block';
+    updateProgress(0);
+    processNextFile();
+  }
+
+  function processNextFile() {
+    if (queue.length === 0) {
+      finishBatch();
+      return;
+    }
+
+    const file = queue.shift();
+    const currentNum = totalFiles - queue.length;
+    setStatus(`Importing ${currentNum} of ${totalFiles}: ${file.name}...`);
+    updateProgress((currentNum / totalFiles) * 100);
+
+    const isSingleColumn = document.querySelector('input[name="mapMode"][value="one"]').checked;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const opts = {
+        hasHeader: document.getElementById('hasHeader').checked,
+        useSingleColumn: isSingleColumn,
+        targetSide: document.getElementById('importTarget').value,
+        mapping: {
+          date: Number(document.getElementById('colDate').value),
+          description: Number(document.getElementById('colDesc').value),
+          balance: Number(document.getElementById('colBal').value),
+          debit: Number(document.getElementById('colDebit').value),
+          credit: Number(document.getElementById('colCredit').value),
+          amount: Number(document.getElementById('colAmount').value)
+        }
+      };
+
+      google.script.run
+        .withSuccessHandler(() => {
+          successCount++;
+          processNextFile();
+        })
+        .withFailureHandler(err => {
+          setStatus(`Error on ${file.name}: ${err.message}`, true);
+          document.getElementById('btnImport').disabled = false;
+        })
+        .runCsvImport(e.target.result, opts);
+    };
+    reader.readAsText(file);
+  }
+
+  function finishBatch() {
+    updateProgress(100);
+    setStatus(`Done! Successfully imported ${successCount} files.`);
+    document.getElementById('btnImport').disabled = false;
+    document.getElementById('fileInput').value = ""; 
+    setTimeout(() => {
+       document.getElementById('progress-container').style.display = 'none';
+       clearPreview();
+    }, 3000);
+  }
+
+  function setStatus(msg, isErr) {
+    const el = document.getElementById('status');
+    el.textContent = msg;
+    el.style.color = isErr ? 'red' : '#333';
+  }
+
+  function updateProgress(percent) {
+    document.getElementById('progress-bar').style.width = percent + "%";
+  }
+</script>
+
+</body>
+</html>

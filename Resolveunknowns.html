@@ -4,472 +4,292 @@
   <base target="_top">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css">
   <style>
-    body { font-family: 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; background-color: #f4f4f9; color: #000; display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; }
+    body { font-family: 'Segoe UI', Roboto, sans-serif; padding: 20px; background: #f4f4f9; color: #333; display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; margin:0; }
+    
+    /* Header & Toolbar */
+    .header { margin-bottom: 20px; flex-shrink: 0; }
+    h3 { margin: 0 0 15px 0; color: #7b2cbf; border-bottom: 2px solid #e0e0e0; padding-bottom: 10px; }
+    
+    .toolbar { display: flex; gap: 15px; align-items: center; background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); flex-wrap: wrap; }
+    .search-box { flex-grow: 1; position: relative; }
+    .search-box input { width: 100%; padding: 10px 35px 10px 15px; border: 1px solid #ddd; border-radius: 20px; outline: none; transition: border 0.2s; }
+    .search-box input:focus { border-color: #7b2cbf; }
+    .search-icon { position: absolute; right: 12px; top: 10px; color: #999; }
+    
+    .btn-ai { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 8px 16px; border-radius: 20px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.15); transition: transform 0.1s; }
+    .btn-ai:hover { transform: translateY(-1px); }
+    
+    /* Table Area */
+    .table-container { flex-grow: 1; overflow-y: auto; background: #fff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); border: 1px solid #eee; position: relative; }
+    table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 800px; }
+    
+    th { position: sticky; top: 0; background: #f8f9fa; color: #555; font-weight: 600; padding: 12px 15px; text-align: left; border-bottom: 1px solid #ddd; z-index: 10; font-size: 13px; }
+    td { padding: 10px 15px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; font-size: 13px; }
+    tr:hover td { background-color: #fafafa; }
+    tr.ai-guessed td { background-color: #f0f7ff; }
 
-    /* changed: allow scrolling inside the dialog */
-    .container {
-      background: #fff;
-      padding: 20px;
-      border-radius: 8px;
-      display: flex;
-      flex-direction: column;
-      flex-grow: 1;
-      overflow-y: auto;
-      overflow-x: hidden;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    }
+    /* Columns */
+    .col-desc { font-weight: 600; color: #2c3e50; width: 30%; }
+    .col-meta { font-family: monospace; color: #666; font-size: 12px; width: 10%; }
+    .col-cat { width: 30%; }
+    .col-type { width: 15%; }
+    .col-action { width: 10%; text-align: center; }
 
-    h3 { color: #7b2cbf; margin-top: 0; border-bottom: 2px solid #f0f0f0; padding-bottom: 15px; }
+    /* Inputs */
+    select { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; background: white; }
+    .search-link { color: #999; text-decoration: none; font-size: 12px; margin-left: 8px; }
+    .search-link:hover { color: #7b2cbf; }
 
-    .toolbar { display: flex; gap: 20px; background: #f8f9fa; padding: 12px 15px; border: 1px solid #e9ecef; border-radius: 6px; margin-bottom: 15px; align-items: center; justify-content: space-between; }
-    .filter-group { display: flex; gap: 10px; align-items: center; }
-    .search-box { position: relative; }
-    .search-box input { width: 220px; padding: 8px 30px 8px 30px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; color: #000; }
-    .search-icon { position: absolute; left: 10px; top: 9px; color: #999; pointer-events: none; }
-    .clear-icon { position: absolute; right: 10px; top: 9px; color: #999; cursor: pointer; font-weight: bold; display: none; user-select: none; z-index: 5; }
-    .clear-icon:hover { color: #555; }
+    /* Footer */
+    .footer { margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+    .btn-save { background: #7b2cbf; color: white; border: none; padding: 10px 25px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 14px; }
+    .btn-save:hover { background: #6a26a3; }
+    .status { color: #666; font-size: 13px; font-style: italic; }
 
-    .type-filter { padding: 8px; border: 1px solid #ccc; border-radius: 4px; background: #fff; color: #333; min-width: 130px; cursor: pointer; }
-
-    /* bulk box adjusted so it does not get squeezed */
-    .bulk-box { display: flex; align-items: center; gap: 10px; padding-left: 20px; border-left: 2px solid #e0e0e0; justify-content: flex-end; flex-shrink: 0; }
-    #bulkSelect { width: 260px; }
-    .bulk-box .choices { min-width: 260px; }
-    .bulk-box .choices__inner { width: 100%; }
-
-    .btn-ai { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.15); margin-right: 10px; white-space: nowrap; }
-    .btn-ai:hover { opacity: 0.9; transform: translateY(-1px); }
-
-    .choices__list--dropdown { z-index: 100 !important; }
-
-    /* let dropdowns extend outside the table */
-    .table-wrapper {
-      flex-grow: 1;
-      border: 1px solid #e0e0e0;
-      border-radius: 4px;
-      overflow-y: visible;
-      position: relative;
-    }
-
-    table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
-    th { position: sticky; top: 0; background: #7b2cbf; color: #ffffff !important; padding: 12px 8px; text-align: left; z-index: 10; font-weight: 600; font-size: 13px; user-select: none; }
-    th.sortable { cursor: pointer; transition: background 0.2s; }
-    th.sortable:hover { background: #6a26a3; }
-    .sort-icon { font-size: 10px; margin-left: 5px; opacity: 0.7; }
-    td { padding: 8px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; background: #fff; font-size: 13px; color: #000000 !important; font-weight: 500; }
-    tr:hover td { background-color: #fcfcff; }
-    tr.ai-guessed td { background-color: #e8f0fe !important; }
-
-    .col-desc { width: auto; }
-    .col-stats { width: 70px; text-align: right; font-family: monospace; color: #000; }
-    .col-cat { width: 240px; }
-    .col-type { width: 100px; }
-    .col-act { width: 80px; text-align: center; }
-
-    select.std-select { width: 100%; padding: 5px; border: 1px solid #ccc; border-radius: 4px; background: #fff; color: #000; }
-
-    .footer { display: flex; justify-content: space-between; margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee; }
-    button { padding: 8px 18px; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; transition: 0.2s; }
-    .btn-primary { background-color: #7b2cbf; color: white; }
-    .btn-sec { background-color: #f1f3f4; color: #000; border: 1px solid #dadce0; }
-    .btn-sm { padding: 4px 8px; font-size: 12px; }
-
-    #loader { position: absolute; inset: 0; background: rgba(255,255,255,0.95); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 2000; }
-    .spinner { width: 30px; height: 30px; border: 3px solid #f3f3f3; border-top: 3px solid #7b2cbf; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 10px; }
-    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-
-    #status-log { font-size: 11px; color: #888; margin-top: 5px; text-align: left; }
-    #msg-box { text-align: center; padding: 8px; margin-bottom: 10px; border-radius: 4px; display: none; }
-    .err { background: #fdeded; color: #c62828; border: 1px solid #ef9a9a; }
-    .success { background: #edf7ed; color: #1b5e20; border: 1px solid #a5d6a7; }
+    /* Loading Overlay */
+    #loader { position: absolute; inset: 0; background: rgba(255,255,255,0.9); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; font-weight: bold; color: #7b2cbf; }
   </style>
 </head>
 <body>
 
-  <div id="loader">
-    <div class="spinner"></div>
-    <div id="loading-text">Initializing...</div>
-    <button onclick="forceCloseLoader()" style="margin-top:20px; font-size:11px; background:none; border:1px solid #ccc; color:#666; cursor:pointer;">Force Close</button>
+  <div class="header">
+    <h3>Resolve Unknown Transactions</h3>
+    <div class="toolbar">
+      <div class="search-box">
+        <input type="text" id="searchInput" placeholder="Filter descriptions..." onkeyup="filterTable()">
+        <span class="search-icon">🔍</span>
+      </div>
+      <button class="btn-ai" onclick="runAI()">
+        <span>✨</span> AI Auto-Categorize
+      </button>
+    </div>
   </div>
 
-  <div class="container">
-    <h3>Resolve Unknown Transactions</h3>
-    <div id="msg-box"></div>
+  <div class="table-container">
+    <div id="loader">Loading Transactions...</div>
+    <table id="mainTable">
+      <thead>
+        <tr>
+          <th class="col-desc">Description</th>
+          <th class="col-meta">Count</th>
+          <th class="col-meta">Avg Amt</th>
+          <th class="col-cat">Category</th>
+          <th class="col-type">Type</th>
+          <th class="col-action">Link</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+  </div>
 
-    <div class="toolbar">
-      <div class="filter-group">
-        <select id="typeFilter" class="type-filter" onchange="applyFilter()">
-          <option value="all">All Directions</option>
-          <option value="out">Outbound (Debit)</option>
-          <option value="in">Inbound (Credit)</option>
-        </select>
-        <div class="search-box">
-          <span class="search-icon">🔍</span>
-          <span id="clearBtn" class="clear-icon" onclick="clearFilter()">✕</span>
-          <input type="text" id="filterInput" placeholder="Filter by keyword..." onkeyup="applyFilter()">
-        </div>
-      </div>
-
-      <div class="bulk-box">
-        <button class="btn-ai btn-sm" onclick="runAI()">🤖 AI Auto-Cat</button>
-        <select id="bulkSelect" class="std-select">
-          <option value="">-- Bulk Assign Category --</option>
-        </select>
-        <button class="btn-primary btn-sm" onclick="runBulkAssign()">Apply</button>
-      </div>
-    </div>
-
-    <div class="table-wrapper">
-      <table id="mainTable">
-        <thead>
-          <tr>
-            <th class="col-desc sortable" onclick="sortData('keyword')">Description <span id="sort-keyword" class="sort-icon"></span></th>
-            <th class="col-stats sortable" onclick="sortData('count')">Count <span id="sort-count" class="sort-icon"></span></th>
-            <th class="col-stats sortable" onclick="sortData('out')">Avg Out <span id="sort-out" class="sort-icon">⇵</span></th>
-            <th class="col-stats sortable" onclick="sortData('in')">Avg In <span id="sort-in" class="sort-icon">⇵</span></th>
-            <th class="col-cat">Category</th>
-            <th class="col-type">Type</th>
-            <th class="col-act">Search</th>
-          </tr>
-        </thead>
-        <tbody id="tableBody"></tbody>
-      </table>
-    </div>
-
-    <div class="footer">
-      <div id="status-log">Ready.</div>
-      <div style="display:flex; gap:10px; margin-left:auto;">
-        <button class="btn-sec" onclick="google.script.host.close()">Close</button>
-        <button class="btn-primary" onclick="saveChanges()">Save and Re-categorize</button>
-      </div>
-    </div>
+  <div class="footer">
+    <div class="status" id="statusLog">Ready.</div>
+    <button class="btn-save" onclick="saveRules()">Save Rules</button>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
 
   <script>
-    let ALL_DATA = [], CATEGORIES = [], DROPDOWNS = [], bulkChoice = null;
-    let currentSort = { col: 'count', dir: 'desc' };
+    let ALL_DATA = [];
+    let CATEGORIES = [];
+    let CATEGORY_MAP = {}; // Map category name -> type
+    let DROPDOWNS = [];
 
-    const el = id => document.getElementById(id);
-    const log = msg => el('status-log').innerText = msg;
-    const showLoad = (show, txt) => {
-      el('loading-text').innerText = txt || 'Processing...';
-      el('loader').style.display = show ? 'flex' : 'none';
-    };
-    const notify = (msg, isErr) => {
-      const b = el('msg-box');
-      b.innerText = msg;
-      b.className = isErr ? 'err' : 'success';
-      b.style.display = 'block';
-      if (!isErr) setTimeout(() => { b.style.display = 'none'; }, 4000);
-    };
-    const fmtNum = n => (Number(n) || 0).toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-    function forceCloseLoader() {
-      showLoad(false);
-      notify('Loader closed manually. Check logs if data did not load.', true);
-    }
-
+    // --- INITIALIZATION ---
     document.addEventListener('DOMContentLoaded', () => {
-      setTimeout(() => {
-        if (el('loader').style.display !== 'none') {
-          showLoad(false);
-          notify('Loading took too long. Check for script errors.', true);
-        }
-      }, 8000);
-
-      try {
-        showLoad(true, 'Step 1: Loading categories...');
-        log('Fetching categories...');
-
-        if (typeof google === 'undefined') throw new Error('Google Script API not available.');
-
-        google.script.run
-          .withSuccessHandler(res => {
-            CATEGORIES = (res.flatList || []).sort((a, b) => a.category.localeCompare(b.category));
-            initBulkDropdown();
-            loadTransactions();
-          })
-          .withFailureHandler(err => {
-            el('loading-text').innerText = 'Error loading categories: ' + err.message;
-            console.error(err);
-            showLoad(false);
-          })
-          .getCategoriesFromSettings();
-
-      } catch (err) {
-        alert('Startup Error: ' + err.message);
-        showLoad(false);
-      }
+      loadSystemData();
     });
 
-    function loadTransactions() {
-      showLoad(true, 'Step 2: Scanning unknown transactions...');
-      log('Scanning Transactions sheet...');
+    function loadSystemData() {
+      // 1. Get Categories
+      google.script.run
+        .withSuccessHandler(res => {
+          CATEGORIES = res.flatList || [];
+          // Build map for auto-setting Type
+          CATEGORIES.forEach(c => {
+            if(c.category && c.type) CATEGORY_MAP[c.category] = c.type;
+          });
+          
+          // 2. Get Transactions
+          loadTransactions();
+        })
+        .getCategoriesFromSettings();
+    }
 
+    function loadTransactions() {
+      document.getElementById('loader').style.display = 'flex';
       google.script.run
         .withSuccessHandler(data => {
-          log('Found ' + (data ? data.length : 0) + ' unknown item groups.');
           ALL_DATA = data || [];
-          performSort();
-          showLoad(false);
-          log('Ready.');
+          renderTable(ALL_DATA);
+          document.getElementById('loader').style.display = 'none';
+          log(`Loaded ${ALL_DATA.length} unknown groups.`);
         })
-        .withFailureHandler(e => {
-          notify('Failed scanning transactions: ' + e.message, true);
-          showLoad(false);
+        .withFailureHandler(err => {
+           document.getElementById('loader').innerText = "Error: " + err.message;
         })
         .getUnknownTransactions();
     }
 
-    function runAI() {
-      const visibleRows = Array.from(document.querySelectorAll('#tableBody tr')).filter(r => r.style.display !== 'none');
-      if (visibleRows.length === 0) {
-        alert('No transactions visible.');
-        return;
-      }
-
-      const descriptions = visibleRows.map(r => r.dataset.keyword);
-      const rowIndices = visibleRows.map(r => r.dataset.index);
-
-      showLoad(true, 'AI categorizing ' + descriptions.length + ' items...');
-
-      google.script.run
-        .withSuccessHandler(results => {
-          let appliedCount = 0;
-          results.forEach((res, i) => {
-            const rowIndex = rowIndices[i];
-            const dropdown = DROPDOWNS[rowIndex];
-            const tr = document.querySelector('tr[data-index="' + rowIndex + '"]');
-            if (!tr || !dropdown || !res) return;
-            if (!res.category || res.category === 'Unknown' || res.category === 'None') return;
-
-            dropdown.setChoiceByValue(res.category);
-            tr.querySelector('.row-type-select').value = res.type || 'Unknown';
-            tr.classList.add('ai-guessed');
-            appliedCount++;
-          });
-          showLoad(false);
-          notify('AI suggested categories for ' + appliedCount + ' items.', false);
-        })
-        .withFailureHandler(e => {
-          showLoad(false);
-          notify('AI Error: ' + e.message, true);
-        })
-        .aiCategorizeTransactions(descriptions);
-    }
-
-    function sortData(col) {
-      if (currentSort.col === col) {
-        currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc';
-      } else {
-        currentSort.col = col;
-        currentSort.dir = 'desc';
-      }
-      performSort();
-    }
-
-    function performSort() {
-      const mult = currentSort.dir === 'asc' ? 1 : -1;
-      ALL_DATA.sort((a, b) => {
-        let valA, valB;
-        if (currentSort.col === 'out') {
-          valA = a.averageDebit; valB = b.averageDebit;
-        } else if (currentSort.col === 'in') {
-          valA = a.averageCredit; valB = b.averageCredit;
-        } else if (currentSort.col === 'count') {
-          valA = a.count; valB = b.count;
-        } else {
-          valA = a.keyword; valB = b.keyword;
-        }
-        if (valA < valB) return -1 * mult;
-        if (valA > valB) return 1 * mult;
-        return 0;
-      });
-
-      ['keyword','count','out','in'].forEach(c => el('sort-' + c).innerText = '');
-      el('sort-' + currentSort.col).innerText = currentSort.dir === 'asc' ? '↑' : '↓';
-
-      renderTable(ALL_DATA);
-      applyFilter();
-    }
-
-    function renderTable(data) {
-      const tbody = el('tableBody');
+    // --- RENDERING ---
+    function renderTable(rows) {
+      const tbody = document.getElementById('tableBody');
       tbody.innerHTML = '';
-      DROPDOWNS.forEach(d => { if (d && d.destroy) d.destroy(); });
-      DROPDOWNS = [];
+      DROPDOWNS = []; // Clear old instances
 
-      if (!data.length) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:50px; color:#888;">'
-          + '<div style="font-size:16px; font-weight:bold; margin-bottom:8px;">No Unknown Transactions</div>'
-          + '<div>All transactions have a Category that is not blank, Unknown, or None.</div>'
-          + '</td></tr>';
+      if (rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:30px; color:#888;">No unknown transactions found! 🎉</td></tr>';
         return;
       }
 
-      const catOptions = '<option value="">-- Select --</option>' +
-        CATEGORIES.map(c => '<option value="' + c.category + '">' + c.category + '</option>').join('');
+      // Pre-build options HTML to speed up loop
+      const catOptions = '<option value="">-- Select --</option>' + 
+        CATEGORIES.map(c => `<option value="${c.category}">${c.category}</option>`).join('');
 
-      data.forEach((row, idx) => {
+      rows.forEach((row, idx) => {
         const tr = document.createElement('tr');
-        tr.dataset.index = idx;
-        tr.dataset.keyword = (row.keyword || '').toLowerCase();
-        tr.dataset.hasOut = row.averageDebit > 0 ? '1' : '0';
-        tr.dataset.hasIn = row.averageCredit > 0 ? '1' : '0';
-        tr.dataset.direction = row.direction || (row.averageDebit > 0 ? 'out' : 'in');
+        tr.dataset.idx = idx;
+        
+        // Determine amount string
+        const isOut = row.direction === 'out';
+        const amt = isOut ? row.averageDebit : row.averageCredit;
+        const amtStr = (isOut ? '-' : '+') + '$' + (Number(amt)||0).toFixed(2);
+        const safeDesc = encodeURIComponent(row.keyword);
 
-        const safeKw = encodeURIComponent(row.keyword || '').replace(/'/g, '%27');
-
-        tr.innerHTML = ''
-          + '<td class="col-desc"><b>' + (row.keyword || '') + '</b></td>'
-          + '<td class="col-stats">' + row.count + '</td>'
-          + '<td class="col-stats">' + fmtNum(row.averageDebit) + '</td>'
-          + '<td class="col-stats">' + fmtNum(row.averageCredit) + '</td>'
-          + '<td class="col-cat"><select id="cat-' + idx + '" class="row-cat-select std-select">' + catOptions + '</select></td>'
-          + '<td class="col-type"><select class="std-select row-type-select">'
-          + '<option value="Need">Need</option>'
-          + '<option value="Want">Want</option>'
-          + '<option value="Income">Income</option>'
-          + '<option value="Savings">Savings</option>'
-          + '<option value="Debt">Debt</option>'
-          + '<option value="Unknown">Unknown</option>'
-          + '<option value="None">None</option>'
-          + '</select></td>'
-          + '<td class="col-act"><button class="btn-sec btn-sm" onclick="window.open(\'https://www.google.com/search?q=' + safeKw + '\', \'_blank\')">Search</button></td>';
+        tr.innerHTML = `
+          <td class="col-desc">${row.keyword}</td>
+          <td class="col-meta">${row.count}</td>
+          <td class="col-meta" style="color:${isOut ? '#d32f2f' : '#2e7d32'}">${amtStr}</td>
+          <td class="col-cat">
+            <select class="cat-select" id="cat-${idx}">${catOptions}</select>
+          </td>
+          <td class="col-type">
+            <select class="type-select">
+              <option value="Need">Need</option>
+              <option value="Want">Want</option>
+              <option value="Income">Income</option>
+              <option value="Savings">Savings</option>
+              <option value="Debt">Debt</option>
+              <option value="Unknown" selected>Unknown</option>
+            </select>
+          </td>
+          <td class="col-action">
+            <a href="https://www.google.com/search?q=${safeDesc}" target="_blank" class="search-link" title="Google this payee">↗ Google</a>
+          </td>
+        `;
 
         tbody.appendChild(tr);
 
-        try {
-          const selectEl = tr.querySelector('#cat-' + idx);
-          const choice = new Choices(selectEl, {
-            searchEnabled: true,
-            itemSelectText: '',
-            shouldSort: false,
-            renderChoiceLimit: -1
-          });
-          DROPDOWNS.push(choice);
-          selectEl.addEventListener('change', function() {
-            const val = choice.getValue(true);
-            const rule = CATEGORIES.find(c => c.category === val);
-            if (rule && rule.type) {
-              tr.querySelector('.row-type-select').value = rule.type;
-            }
-          });
-        } catch (err) {
-          console.error(err);
-          DROPDOWNS.push(null);
-        }
-      });
-    }
-
-    function initBulkDropdown() {
-      const sel = el('bulkSelect');
-      sel.innerHTML = '<option value="">-- Bulk Assign Category --</option>'
-        + CATEGORIES.map(c => '<option value="' + c.category + '">' + c.category + '</option>').join('');
-      if (bulkChoice) bulkChoice.destroy();
-      try {
-        bulkChoice = new Choices(sel, {
+        // Initialize Choices.js for this row
+        const sel = tr.querySelector(`#cat-${idx}`);
+        const choice = new Choices(sel, {
           searchEnabled: true,
           itemSelectText: '',
           shouldSort: false,
-          renderChoiceLimit: -1
+          placeholder: true,
+          placeholderValue: 'Select Category'
         });
-      } catch (e) {}
+        
+        // Add change listener to auto-update Type
+        sel.addEventListener('change', (e) => {
+           const val = e.detail.value;
+           if (CATEGORY_MAP[val]) {
+             tr.querySelector('.type-select').value = CATEGORY_MAP[val];
+           }
+        });
+
+        DROPDOWNS.push({ element: sel, choiceInstance: choice });
+      });
     }
 
-    function applyFilter() {
-      const term = el('filterInput').value.toLowerCase().trim();
-      const type = el('typeFilter').value;
-      el('clearBtn').style.display = term.length > 0 ? 'block' : 'none';
-      const keywords = term.split(',').map(k => k.trim()).filter(k => k.length > 0);
+    // --- SEARCH FILTER ---
+    function filterTable() {
+      const term = document.getElementById('searchInput').value.toLowerCase();
       const rows = document.querySelectorAll('#tableBody tr');
+      
       rows.forEach(r => {
-        const txt = r.dataset.keyword || '';
-        const hasIn = r.dataset.hasIn === '1';
-        const hasOut = r.dataset.hasOut === '1';
-
-        let matchesType = true;
-        if (type === 'out') matchesType = hasOut;
-        if (type === 'in') matchesType = hasIn;
-
-        let matchesText = false;
-        if (!keywords.length) {
-          matchesText = true;
-        } else {
-          matchesText = keywords.some(k => txt.indexOf(k) !== -1);
-        }
-
-        r.style.display = (matchesText && matchesType) ? '' : 'none';
+        const txt = r.querySelector('.col-desc').innerText.toLowerCase();
+        r.style.display = txt.includes(term) ? '' : 'none';
       });
     }
 
-    function clearFilter() {
-      el('filterInput').value = '';
-      applyFilter();
-    }
+    // --- AI AUTO-CATEGORIZE ---
+    function runAI() {
+      const visibleRows = Array.from(document.querySelectorAll('#tableBody tr')).filter(r => r.style.display !== 'none');
+      if (visibleRows.length === 0) return log("No visible rows to categorize.");
 
-    function runBulkAssign() {
-      const catVal = bulkChoice ? bulkChoice.getValue(true) : el('bulkSelect').value;
-      if (!catVal) {
-        alert('Select a category for bulk assign.');
-        return;
-      }
-      const rule = CATEGORIES.find(c => c.category === catVal);
-      const typeVal = rule ? (rule.type || 'Unknown') : 'Unknown';
-      let count = 0;
+      const keywords = visibleRows.map(r => r.querySelector('.col-desc').innerText);
+      
+      log("AI is thinking...");
+      document.body.style.cursor = 'wait';
 
-      document.querySelectorAll('#tableBody tr').forEach((r, i) => {
-        if (r.style.display !== 'none') {
-          const choice = DROPDOWNS[i];
-          if (choice) {
-            choice.setChoiceByValue(catVal);
-            r.querySelector('.row-type-select').value = typeVal;
-            count++;
-          }
-        }
-      });
-
-      notify('Updated ' + count + ' visible rows.', false);
-    }
-
-    function saveChanges() {
-      const rows = Array.from(document.querySelectorAll('#tableBody tr'));
-      const newRules = [];
-
-      rows.forEach((r, i) => {
-        const choice = DROPDOWNS[i];
-        if (!choice) return;
-        const catVal = choice.getValue(true);
-        if (!catVal) return;
-        const typeVal = r.querySelector('.row-type-select').value;
-        newRules.push({
-          keyword: r.cells[0].innerText,
-          cat: catVal,
-          typ: typeVal,
-          direction: r.dataset.direction
-        });
-      });
-
-      if (!newRules.length) {
-        alert('No categories assigned.');
-        return;
-      }
-
-      showLoad(true, 'Saving ' + newRules.length + ' rules and updating sheet...');
       google.script.run
-        .withSuccessHandler(() => {
-          notify('Saved rules and updated Transactions. Reloading unknowns...', false);
+        .withSuccessHandler(results => {
+          let updates = 0;
+          results.forEach((res, i) => {
+            if (res.category && res.category !== 'Unknown') {
+              const tr = visibleRows[i];
+              const idx = tr.dataset.idx;
+              
+              // Find the choice instance for this row
+              const dd = DROPDOWNS[idx]; 
+              if (dd) {
+                dd.choiceInstance.setChoiceByValue(res.category);
+                tr.querySelector('.type-select').value = res.type || 'Unknown';
+                tr.classList.add('ai-guessed');
+                updates++;
+              }
+            }
+          });
+          document.body.style.cursor = 'default';
+          log(`AI updated ${updates} rows.`);
+        })
+        .aiCategorizeTransactions(keywords);
+    }
+
+    // --- SAVE ---
+    function saveRules() {
+      const rules = [];
+      const rows = document.querySelectorAll('#tableBody tr');
+      
+      rows.forEach((tr, i) => {
+        const dd = DROPDOWNS[tr.dataset.idx];
+        const cat = dd.choiceInstance.getValue(true);
+        
+        if (cat) {
+           const keyword = tr.querySelector('.col-desc').innerText;
+           const type = tr.querySelector('.type-select').value;
+           // Determine direction from data (using stored global data or UI color)
+           // For safety, let's use the 'any' direction or infer from UI class
+           const isOut = tr.querySelector('.col-meta').style.color.includes('d32f2f'); // Red = Out
+           
+           rules.push({
+             keyword: keyword,
+             category: cat,
+             type: type,
+             direction: isOut ? 'out' : 'in'
+           });
+        }
+      });
+
+      if (rules.length === 0) return alert("Please assign at least one category before saving.");
+
+      log(`Saving ${rules.length} rules...`);
+      
+      google.script.run
+        .withSuccessHandler(res => {
+          alert(`Success! Saved ${res.saved} rules. The budget system is refreshing...`);
+          // Reload to show remaining unknowns
           loadTransactions();
         })
-        .withFailureHandler(e => {
-          showLoad(false);
-          notify('Save Failed: ' + e.message, true);
-        })
-        .resolveUnknownTransactions(newRules);
+        .withFailureHandler(err => alert("Error saving: " + err.message))
+        .resolveUnknownTransactions(rules);
     }
-  </script>
 
+    function log(msg) {
+      document.getElementById('statusLog').innerText = msg;
+    }
+
+  </script>
 </body>
 </html>

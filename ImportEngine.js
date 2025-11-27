@@ -2,166 +2,148 @@
  * IMPORT ENGINE
  * ----------------------------------------------------------------------------
  * Handles:
- *   - CSV import from Importer.html
- *   - User preferences for mapping
- *   - Writing rows into Transactions in clean format
- *   - Normalizing dates, amounts, descriptions
- *   - Triggering Categorization and Compute updates after import
+ * - CSV import into Cheque/Savings (Left) or Credit Card (Right)
+ * - Auto-resolving Debit/Credit/Balance
+ * - Storing/Retrieving Import Presets (Memory)
  * ============================================================================ */
 
 function ImportEngine() {
   return {
     importCsv: importCsv_,
-    savePreferences: saveImportPreferences_,
-    getPreferences: getImportPreferences_
+    getPresets: getPresets_,
+    savePreset: savePreset_,
+    deletePreset: deletePreset_
   };
 }
 
 /** ============================================================================
- * PREFERENCES (stored in Script Properties)
+ * MEMORY / PRESETS
  * ============================================================================ */
-
-function saveImportPreferences_(prefs) {
-  PropertiesService.getScriptProperties().setProperty(
-    "IMPORT_PREFS",
-    JSON.stringify(prefs || {})
-  );
+function getPresets_() {
+  const raw = PropertiesService.getScriptProperties().getProperty("IMPORT_MAP_PRESETS");
+  return raw ? JSON.parse(raw) : {};
 }
 
-function getImportPreferences_() {
-  const raw = PropertiesService.getScriptProperties().getProperty("IMPORT_PREFS");
-  return raw ? JSON.parse(raw) : {};
+function savePreset_(name, mapData) {
+  const presets = getPresets_();
+  presets[name] = mapData;
+  PropertiesService.getScriptProperties().setProperty("IMPORT_MAP_PRESETS", JSON.stringify(presets));
+  return Object.keys(presets);
+}
+
+function deletePreset_(name) {
+  const presets = getPresets_();
+  delete presets[name];
+  PropertiesService.getScriptProperties().setProperty("IMPORT_MAP_PRESETS", JSON.stringify(presets));
+  return Object.keys(presets);
 }
 
 /** ============================================================================
  * MAIN CSV IMPORT ROUTINE
  * ============================================================================ */
-
 function importCsv_(csvText, opts) {
   if (!csvText) throw new Error("CSV text empty.");
   opts = opts || {};
 
-  const targetSheet = opts.targetSheet;
-  if (!targetSheet) throw new Error("Target sheet not provided.");
-
+  const targetSheet = opts.targetSheet || "Transactions";
   const sh = SpreadsheetApp.getActive().getSheetByName(targetSheet);
   if (!sh) throw new Error("Target sheet " + targetSheet + " not found.");
 
-  const delimiter = opts.delimiter || ",";
+  const side = opts.targetSide || "Left"; 
 
-  const parsed = Utilities.parseCsv(csvText, delimiter);
-  if (!parsed || parsed.length === 0) {
-    throw new Error("CSV parsing produced no rows.");
-  }
+  const parsed = Utilities.parseCsv(csvText, ",");
+  if (!parsed || parsed.length === 0) return { inserted: 0 };
 
   let rows = parsed;
-  if (opts.hasHeader) {
-    rows = rows.slice(1); // remove header row
-  }
+  if (opts.hasHeader) rows = rows.slice(1);
 
   const mapping = opts.mapping || {};
   const resultRows = [];
 
   rows.forEach(raw => {
-    const r = buildTransactionRow_(raw, mapping);
-    if (r) resultRows.push(r);
+    const vals = parseRawValues_(raw, mapping, opts);
+    if (!vals) return; 
+
+    if (side === "Left") {
+      // Left Table (A:G): [Date, Desc, Debit, Credit, Balance, Cat, Type]
+      resultRows.push([
+        vals.date,
+        vals.desc,
+        vals.debit,
+        vals.credit,
+        vals.balance, // Column E
+        "", "" 
+      ]);
+    } else {
+      // Right Table (J:P): [Date, Desc, Amount, Balance, Cat, Type]
+      const netAmount = vals.debit - vals.credit;
+      resultRows.push([
+        vals.date,
+        vals.desc,
+        netAmount,
+        vals.balance, // Column M (if following standard structure)
+        "", "", "" 
+      ]);
+    }
   });
 
-  if (resultRows.length === 0) {
-    throw new Error("No valid rows produced.");
+  if (resultRows.length === 0) return { inserted: 0 };
+
+  // Append Logic
+  let startRow = 5; 
+  let startCol = 1; 
+
+  if (side === "Left") {
+    startCol = 1; // A
+    const lastRow = sh.getRange("A:A").getLastRow();
+    startRow = Math.max(5, lastRow + 1);
+  } else {
+    startCol = 10; // J
+    const lastRow = sh.getRange("J:J").getLastRow();
+    startRow = Math.max(5, lastRow + 1);
   }
 
-  // Append to sheet
-  const startRow = sh.getLastRow() + 1;
-  sh.getRange(startRow, 1, resultRows.length, resultRows[0].length)
+  sh.getRange(startRow, startCol, resultRows.length, resultRows[0].length)
     .setValues(resultRows);
 
-  // After import flows
   const sync = SyncEngine();
-  sync.afterImport();
+  if (sync && sync.afterImport) sync.afterImport();
 
-  return {
-    inserted: resultRows.length,
-    firstRow: startRow,
-    lastRow: startRow + resultRows.length - 1
-  };
-}
-
-/** ============================================================================
- * BUILD CLEAN TRANSACTION ROW
- * ============================================================================ */
-
-function buildTransactionRow_(raw, mapping) {
-  // Transaction sheet columns we fill:
-  // A date    → parsed
-  // B desc    → text
-  // C debit   → numeric
-  // D credit  → numeric
-  // E balance → optional
-  //
-  // F, G, O, P (category/type) will be filled later by CategorizationEngine
-
-  const dateVal = parseImportDate_(raw[mapping.date]);
-  const desc    = cleanText_(raw[mapping.description]);
-  const debit   = parseAmount_(raw[mapping.debit]);
-  const credit  = parseAmount_(raw[mapping.credit]);
-  const balance = parseAmount_(raw[mapping.balance]);
-
-  if (!desc && (!debit && !credit)) {
-    return null;
-  }
-
-  return [
-    dateVal,
-    desc,
-    debit,
-    credit,
-    balance,
-    "",   // F Category (left)
-    "",   // G Type
-    "",   // H unused
-    "",   // I unused
-    "",   // J unused
-    desc, // K mirror description for inbound side (used by your model)
-    credit,
-    "", "", "", // L M N
-    "",         // O Category (right)
-    ""          // P Type
-  ];
+  return { inserted: resultRows.length };
 }
 
 /** ============================================================================
  * HELPERS
  * ============================================================================ */
+function parseRawValues_(raw, mapping, opts) {
+  const dateVal = parseImportDate_(raw[mapping.date]);
+  const desc    = cleanText_(raw[mapping.description]);
+  const bal     = parseAmount_(raw[mapping.balance]); // Parse Balance
+
+  let debit = 0;
+  let credit = 0;
+
+  if (opts.useSingleColumn) {
+    const amt = parseAmount_(raw[mapping.amount]);
+    if (amt < 0) {
+      debit = Math.abs(amt); 
+    } else {
+      credit = amt;          
+    }
+  } else {
+    debit  = parseAmount_(raw[mapping.debit]);
+    credit = parseAmount_(raw[mapping.credit]);
+  }
+
+  if (!desc && debit === 0 && credit === 0) return null;
+
+  return { date: dateVal, desc: desc, debit: debit, credit: credit, balance: bal };
+}
 
 function parseImportDate_(val) {
   if (!val) return "";
-
-  // Try native date
   const d = new Date(val);
-  if (!isNaN(d.getTime())) {
-    return new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  }
-
-  // Try DD/MM/YYYY or YYYY-MM-DD
-  const s = String(val).trim();
-  const partsSlash = s.split("/");
-  if (partsSlash.length === 3) {
-    const dd = parseInt(partsSlash[0], 10);
-    const mm = parseInt(partsSlash[1], 10) - 1;
-    const yy = parseInt(partsSlash[2], 10);
-    if (dd && mm >= 0) return new Date(yy, mm, dd);
-  }
-
-  const partsDash = s.split("-");
-  if (partsDash.length === 3) {
-    const yy = parseInt(partsDash[0], 10);
-    const mm = parseInt(partsDash[1], 10) - 1;
-    const dd = parseInt(partsDash[2], 10);
-    if (dd && mm >= 0) return new Date(yy, mm, dd);
-  }
-
-  return "";
+  return isNaN(d.getTime()) ? "" : d;
 }
 
 function parseAmount_(v) {
@@ -172,6 +154,5 @@ function parseAmount_(v) {
 }
 
 function cleanText_(s) {
-  if (!s) return "";
-  return String(s).trim();
+  return String(s || "").trim();
 }
